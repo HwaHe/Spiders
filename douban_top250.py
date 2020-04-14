@@ -1,15 +1,14 @@
-# @Time    : 2020/4/12 23:37
-# @Author  : hwa
-# @File    : DouBanTop250.py
-# Crawl Douban top250 movies with requests and re
+import re
 import json
 import requests
+from multiprocessing import Pool, Lock
 from requests.exceptions import RequestException
-import re
-from multiprocessing import Pool
+
 
 pattern_str = ('<li.*?item.*?<em class="">(\d+)</em>.*?href="(.*?)".*?src="(.*?)".*?title">(.*?)</span>.*?'
-               'bd.*?class="">(.*?)<br>(.*?)</p>.*?average">(.*?)</span>.*?inq">(.*?)</span>.*?</li>')
+               'bd.*?class="">(.*?)<br>(.*?)</p>.*?average">(.*?)</span>(.*?)</li>')
+abstract_str = '<span.*?inq">(.*?)</span>'
+
 headers = {
     'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
                    'Chrome/80.0.3987.163 Safari/537.36'),
@@ -30,7 +29,9 @@ def get_one_page(url):
 def parse_one_page(html):
     pattern = re.compile(pattern_str, re.S)
     results = re.findall(pattern, html)
+    abstract_pattern = re.compile(abstract_str, re.S)
     for result in results:
+        abstract = re.search(abstract_pattern, result[7])
         yield {
             'rank': result[0],
             'link': result[1],
@@ -38,14 +39,15 @@ def parse_one_page(html):
             'title': result[3],
             'info': result[4].strip().replace("&nbsp;", " ") + "\n" + result[5].strip().replace("&nbsp;", " "),
             'score': result[6],
-            'abstract': result[7]
+            'abstract': abstract.group(1) if abstract is not None else ''
         }
 
 
 def write_to_file(item):
-    print(item)
-    with open("Datas/DouBanTop250.txt", "a", encoding="utf-8") as f:
+    lock.acquire()
+    with open("datas/douban_top250.txt", "a", encoding="utf-8") as f:
         f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    lock.release()
 
 
 def main(offset):
@@ -55,8 +57,16 @@ def main(offset):
         write_to_file(item)
 
 
+def init(g_lock):
+    global lock
+    lock = g_lock
+
+
 if __name__ == "__main__":
-    # pool = Pool()
-    # pool.map(main, [x*25 for x in range(10)])
-    for i in range(10):
-        main(i*25)
+    lock = Lock()
+    pool = Pool(initializer=init, initargs=(lock,))
+    pool.map(main, [x * 25 for x in range(10)])
+    pool.close()
+    pool.join()
+    # for i in range(10):
+    #     main(i * 25)
